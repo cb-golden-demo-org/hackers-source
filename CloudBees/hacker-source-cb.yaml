@@ -1,0 +1,46 @@
+apiVersion: automation.cloudbees.io/v1alpha1
+kind: Workflow
+name: test-and-build-image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    steps:
+      - name: Checkout
+        uses: cloudbees-io/checkout@v1
+
+      - name: Setup Node.js
+        uses: cloudbees-io/configure-node@v1
+        with:
+          version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          VUE_APP_ROLLOUT_KEY: ${{ secrets.VUE_APP_ROLLOUT_KEY }}
+
+      - name: Run unit tests
+        run: npm run test:unit
+        env:
+          VUE_APP_ROLLOUT_KEY: ${{ secrets.VUE_APP_ROLLOUT_KEY }}
+
+      - name: Record test results to Launchable
+        if: always()
+        env:
+          LAUNCHABLE_TOKEN: ${{ secrets.LAUNCHABLE_TOKEN }}
+        run: |
+          # Install Launchable CLI
+          pip install --user launchable~=1.0
+          export PATH=~/.local/bin:$PATH
+          
+          # Initialize and record
+          launchable verify
+          launchable record build --name "$CLOUDBEES_BUILD_ID" --source .
+          launchable record tests --build "$CLOUDBEES_BUILD_ID" jest junit.xml
+
+      - name: Upload test results
+        uses: cloudbees-io/archive-artifacts@v1
+        with:
+          paths: junit.xml
